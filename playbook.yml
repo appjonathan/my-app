@@ -1,0 +1,29 @@
+---
+- hosts: 18.196.203.19
+  become: yes
+  tasks:
+    - name: Install Node.js
+      apt:
+        pkg: nodejs
+        state: present
+        update_cache: yes
+
+    - name: Install npm
+      apt:
+        pkg: npm
+        state: present
+
+    - name: Clone the repository
+      git:
+        repo: 'https://github.com/appjonathan/greeting-app.git'
+        dest: /var/www/my-app
+
+    - name: Install npm dependencies
+      command: npm install
+      args:
+        chdir: /var/www/my-app
+
+    - name: Start the application
+      command: npm start
+      args:
+        chdir: /var/www/my-app
