@@ -1,0 +1,97 @@
+---
+- name: Install and configure Nginx
+  hosts: webservers
+  become: yes
+  vars:
+    node_version: "16"
+
+  tasks:
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: latest
+        update_cache: yes
+
+    - name: Create web directory for app
+      file:
+        path: /var/www/my-app
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0775'
+
+    - name: Add ubuntu user to www-data group
+      user:
+        name: ubuntu
+        groups: www-data
+        append: yes
+
+    - name: Download and run NVM installer
+      shell: >
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+      args:
+        creates: "{{ ansible_env.HOME }}/.nvm/nvm.sh"
+      become_user: ubuntu
+
+    - name: Source NVM and install Node.js
+      become: yes
+      become_user: ubuntu
+      shell: |
+        . "$HOME/.nvm/nvm.sh"
+        nvm install {{ node_version }}
+        nvm use {{ node_version }}
+      args:
+        executable: /bin/bash
+
+    - name: Copy Nginx configuration
+      copy:
+        dest: /etc/nginx/sites-available/my_app
+        content: |
+          upstream my_nodejs_upstream {
+              server 127.0.0.1:8080;
+              keepalive 64;
+          }
+
+          server {
+              listen 80;
+              # listen 443 ssl;
+              server_name my-app.com www.my-app.com;
+
+              # SSL-Konfiguration (wenn benötigt)
+              # ssl_certificate /etc/ssl/main.crt;
+              # ssl_certificate_key /etc/ssl/main.key;
+
+              # Statische Dateien für das React-Frontend aus /dist bedienen
+              location / {
+                  root /var/www/my-app/dist;
+                  try_files $uri $uri/ /index.html;
+              }
+
+              # API-Anfragen an Express weiterleiten
+              location /api {
+                  proxy_pass http://my_nodejs_upstream;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection 'upgrade';
+                  proxy_set_header Host $host;
+                  proxy_cache_bypass $http_upgrade;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Real-IP $remote_addr;
+              }
+          }
+
+    - name: Enable site configuration
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/my_app
+        dest: /etc/nginx/sites-enabled/my_app
+        state: link
+
+    - name: Remove default Nginx site configuration
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded
